@@ -109,7 +109,7 @@ def create_session_list_panel(
     hint_text = (
         "\nType session number (e.g. 1) or ID to switch, or press Enter to cancel."
         if show_project_col
-        else "\nType session number (e.g. 1) or ID to switch, or Enter to cancel. (Use '/history all' for all projects)"
+        else "\nType session number (e.g. 1) or ID to switch, or Enter to cancel. (Use '/resume all' for all projects)"
     )
     hint = Text(hint_text, style="dim italic")
     return Panel(Group(table, hint), box=box.ROUNDED, border_style="cyan")
@@ -121,13 +121,13 @@ def create_help_table() -> Panel:
     cmd_table.add_column("Command", style="bold cyan")
     cmd_table.add_column("Description", style="white")
 
-    cmd_table.add_row("/help", "Show this help table")
-    cmd_table.add_row("/history [all]", "Browse and load past sessions (current project or all)")
-    cmd_table.add_row("/new", "Start a new session")
+    cmd_table.add_row("/help, /?", "Show this help table")
+    cmd_table.add_row("/resume [all], /history", "Browse and load past sessions (current project or all)")
+    cmd_table.add_row("/new, /reset", "Start a new session")
     cmd_table.add_row("/tools", "List all 8 available tools and parameters")
-    cmd_table.add_row("/config", "Display active provider, model, and env settings")
-    cmd_table.add_row("/clear", "Clear terminal screen")
-    cmd_table.add_row("/exit, /quit", "Exit the agent session")
+    cmd_table.add_row("/config, /settings", "Display active provider, model, and env settings")
+    cmd_table.add_row("/clear, /cls", "Clear terminal screen")
+    cmd_table.add_row("/exit, /quit, /q", "Exit the agent session")
 
     tool_table = Table(title="[bold yellow]🔧 Core Tools Available[/bold yellow]", box=box.ROUNDED)
     tool_table.add_column("Tool", style="bold green")

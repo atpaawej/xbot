@@ -7,10 +7,10 @@ import sys
 from typing import Optional
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -26,6 +26,7 @@ from xbot.agent import (
     AgentToolResult,
     AgentToolStart,
 )
+from xbot.commands import SlashCompleter, get_default_registry
 from xbot.config import get_config
 from xbot.tui.components import (
     create_banner,
@@ -38,7 +39,7 @@ from xbot.tui.components import (
 )
 from xbot.tui.formatting import format_markdown
 
-COMMANDS = ["/help", "/history", "/new", "/clear", "/config", "/tools", "/exit", "/quit"]
+COMMANDS = ["/help", "/resume", "/history", "/new", "/clear", "/config", "/tools", "/exit", "/quit"]
 
 
 class XBotTUI:
@@ -47,9 +48,10 @@ class XBotTUI:
     def __init__(self, agent_manager: Optional[AgentManager] = None) -> None:
         self.console = Console()
         self.agent_manager = agent_manager or AgentManager()
-        self.completer = WordCompleter(COMMANDS, ignore_case=True)
+        self.command_registry = get_default_registry()
+        self.completer = SlashCompleter(self.command_registry)
 
-        # Multi-line Keybindings: Enter submits, Alt+Enter (or Escape then Enter) inserts newline
+        # Keybindings: Enter submits, Alt+Enter inserts newline, Escape cancels completion menu
         self.kb = KeyBindings()
 
         @self.kb.add("enter")
@@ -60,15 +62,26 @@ class XBotTUI:
         def _handle_alt_enter(event):
             event.current_buffer.insert_text("\n")
 
-        from prompt_toolkit.styles import Style
+        @self.kb.add("escape")
+        def _handle_escape(event):
+            if event.current_buffer.complete_state:
+                event.current_buffer.cancel_completion()
 
         self.style = Style.from_dict({
             "frame.border": "#00aaaa",
+            "completion-menu": "bg:#111111 #ffffff",
+            "completion-menu.completion": "bg:#222222 #ffffff",
+            "completion-menu.completion.current": "bg:#00aaaa #000000 bold",
+            "completion-menu.meta.completion": "bg:#1e1e1e #888888",
+            "completion-menu.meta.completion.current": "bg:#007777 #ffffff",
+            "scrollbar.background": "bg:#222222",
+            "scrollbar.button": "bg:#00aaaa",
         })
 
         self.session: PromptSession[str] = PromptSession(
             history=InMemoryHistory(),
             completer=self.completer,
+            complete_while_typing=True,
             key_bindings=self.kb,
             multiline=True,
             show_frame=True,
@@ -91,101 +104,19 @@ class XBotTUI:
         self.console.print()
 
     async def handle_history(self, all_projects: bool = False) -> None:
-        """Interactive session picker for /history command."""
-        active_proj = self.agent_manager.session_manager.active_project
-        proj_name = active_proj.name if active_proj else None
-        sessions = self.agent_manager.session_manager.list_sessions(
-            all_projects=all_projects, limit=30
-        )
-        if not sessions:
-            if not all_projects and proj_name:
-                self.console.print(
-                    f"[dim]No saved sessions found for project '{proj_name}'.[/dim]\n"
-                    f"[dim]Tip: Use [/dim][cyan]/history all[/cyan][dim] to browse sessions across all projects.[/dim]\n"
-                )
-            else:
-                self.console.print("[dim]No saved sessions found. Start chatting to create one![/dim]\n")
-            return
-
-        self.console.print(
-            create_session_list_panel(
-                sessions,
-                project_name=proj_name,
-                show_project_col=all_projects,
-            )
-        )
-        self.console.print()
-
-        try:
-            choice = await self.session.prompt_async(
-                HTML("<b><ansicyan>Switch to session [# or ID]</ansicyan></b> <ansigreen>❯</ansigreen> ")
-            )
-            choice = choice.strip()
-            if not choice:
-                self.console.print("[dim]Session selection cancelled.[/dim]\n")
-                return
-
-            target_id = None
-            if choice.isdigit():
-                idx = int(choice)
-                if 1 <= idx <= len(sessions):
-                    target_id = sessions[idx - 1].id
-            else:
-                target_id = choice
-
-            if target_id:
-                success = self.agent_manager.load_session(target_id)
-                if success:
-                    curr = self.agent_manager.current_session
-                    title = curr.title if curr else target_id
-                    self.console.print(
-                        f"[bold green]✓ Loaded session:[/bold green] [bold white]{title}[/bold white] ({target_id})\n"
-                    )
-                else:
-                    self.console.print(f"[bold red]Session '{target_id}' not found.[/bold red]\n")
-        except (KeyboardInterrupt, EOFError):
-            self.console.print("\n[dim]Selection cancelled.[/dim]\n")
+        """Backwards-compatible delegation to the /resume slash command."""
+        cmd = "/resume all" if all_projects else "/resume"
+        await self.handle_command(cmd)
 
     async def handle_command(self, cmd: str) -> bool:
-        """Handle slash command. Returns True to continue, False to exit."""
-        cmd = cmd.strip().lower()
-
-        if cmd in ("/exit", "/quit"):
-            self.console.print("\n[bold yellow]👋 Farewell from xbot![/bold yellow]\n")
-            return False
-
-        if cmd == "/help":
-            self.console.print(create_help_table())
-            self.console.print()
-            return True
-
-        if cmd == "/clear":
-            self.console.clear()
-            self.print_banner()
-            return True
-
-        if cmd == "/config":
-            self.console.print(create_config_table(self.agent_manager.config))
-            self.console.print()
-            return True
-
-        if cmd == "/tools":
-            self.console.print(create_tools_table())
-            self.console.print()
-            return True
-
-        if cmd == "/history" or cmd.startswith("/history"):
-            all_projects = "all" in cmd.split()
-            await self.handle_history(all_projects=all_projects)
-            return True
-
-        if cmd in ("/new", "/reset"):
-            self.agent_manager.reset()
-            self.console.print("[bold green]✓ Started a new session.[/bold green]\n")
-            return True
-
-        self.console.print(f"[bold red]Unknown command:[/bold red] {cmd}. Type [cyan]/help[/cyan] for assistance.\n")
-        return True
+        """Handle slash command via the CommandRegistry. Returns True to continue, False to exit."""
+        result = await self.command_registry.dispatch(
+            cmd,
+            console=self.console,
+            agent_manager=self.agent_manager,
+            tui=self,
+        )
+        return not result.should_exit
 
     async def run_turn(self, user_input: str) -> None:
         """Execute one conversational turn with streaming output, Markdown rendering, and tool cards."""
