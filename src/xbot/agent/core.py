@@ -86,7 +86,9 @@ class AgentManager:
         self.agent = Agent(tools=ALL_TOOLS)
 
         from xbot.sessions import SessionManager, SessionSummary
-        self.session_manager = session_manager or SessionManager()
+        self.session_manager = session_manager or SessionManager(
+            workspace_dir=self.config.workspace_dir
+        )
         self.current_session: Optional[SessionSummary] = None
 
         self.messages: list[Message] = []

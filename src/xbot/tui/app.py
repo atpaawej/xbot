@@ -90,14 +90,30 @@ class XBotTUI:
         self.console.print(create_banner(self.agent_manager.config, session_title=curr_title))
         self.console.print()
 
-    async def handle_history(self) -> None:
+    async def handle_history(self, all_projects: bool = False) -> None:
         """Interactive session picker for /history command."""
-        sessions = self.agent_manager.session_manager.list_sessions(limit=30)
+        active_proj = self.agent_manager.session_manager.active_project
+        proj_name = active_proj.name if active_proj else None
+        sessions = self.agent_manager.session_manager.list_sessions(
+            all_projects=all_projects, limit=30
+        )
         if not sessions:
-            self.console.print("[dim]No saved sessions found. Start chatting to create one![/dim]\n")
+            if not all_projects and proj_name:
+                self.console.print(
+                    f"[dim]No saved sessions found for project '{proj_name}'.[/dim]\n"
+                    f"[dim]Tip: Use [/dim][cyan]/history all[/cyan][dim] to browse sessions across all projects.[/dim]\n"
+                )
+            else:
+                self.console.print("[dim]No saved sessions found. Start chatting to create one![/dim]\n")
             return
 
-        self.console.print(create_session_list_panel(sessions))
+        self.console.print(
+            create_session_list_panel(
+                sessions,
+                project_name=proj_name,
+                show_project_col=all_projects,
+            )
+        )
         self.console.print()
 
         try:
@@ -158,8 +174,9 @@ class XBotTUI:
             self.console.print()
             return True
 
-        if cmd == "/history":
-            await self.handle_history()
+        if cmd == "/history" or cmd.startswith("/history"):
+            all_projects = "all" in cmd.split()
+            await self.handle_history(all_projects=all_projects)
             return True
 
         if cmd in ("/new", "/reset"):

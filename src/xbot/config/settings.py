@@ -7,7 +7,7 @@ with `.env.local` taking precedence. Supports any OpenAI-compatible provider.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -58,6 +58,9 @@ class Config:
     # Metadata
     loaded_env_files: list[str]
 
+    # Global data directory (~/.xbot or XBOT_DATA_DIR)
+    data_dir: Path = field(default_factory=lambda: (Path.home() / ".xbot").resolve())
+
     @classmethod
     def load(cls, base_path: Optional[Path] = None) -> Config:
         """Load configuration from environment and .env / .env.local files."""
@@ -89,6 +92,10 @@ class Config:
         workspace_env = os.getenv("WORKSPACE_DIR", ".")
         workspace_path = (Path(workspace_env) if Path(workspace_env).is_absolute() else (base_path or Path.cwd()) / workspace_env).resolve()
 
+        # Global data directory
+        data_env = os.getenv("XBOT_DATA_DIR")
+        data_path = Path(data_env).expanduser().resolve() if data_env else (Path.home() / ".xbot").resolve()
+
         # Timeout & temperature
         try:
             bash_timeout = int(os.getenv("BASH_TIMEOUT", "120"))
@@ -109,7 +116,13 @@ class Config:
             bash_timeout=bash_timeout,
             temperature=temperature,
             loaded_env_files=loaded,
+            data_dir=data_path,
         )
+
+    def ensure_data_dir(self) -> Path:
+        """Ensure global data directory exists and return it."""
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        return self.data_dir
 
     @property
     def is_llm_configured(self) -> bool:

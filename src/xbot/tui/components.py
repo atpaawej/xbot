@@ -70,11 +70,22 @@ def create_banner(config: Config, session_title: Optional[str] = None) -> Panel:
     )
 
 
-def create_session_list_panel(sessions: list[Any]) -> Panel:
+def create_session_list_panel(
+    sessions: list[Any],
+    project_name: Optional[str] = None,
+    show_project_col: bool = False,
+) -> Panel:
     """Render interactive session list table without turns."""
-    table = Table(box=box.ROUNDED, title="[bold cyan]Saved Sessions History[/bold cyan]")
+    panel_title = (
+        f"[bold cyan]Saved Sessions History — {project_name}[/bold cyan]"
+        if project_name and not show_project_col
+        else "[bold cyan]Saved Sessions History (All Projects)[/bold cyan]"
+    )
+    table = Table(box=box.ROUNDED, title=panel_title)
     table.add_column("[#]", style="bold yellow", justify="center", width=5)
     table.add_column("Title", style="bold white")
+    if show_project_col:
+        table.add_column("Project", style="magenta")
     table.add_column("Updated", style="cyan")
     table.add_column("Session ID", style="dim")
 
@@ -87,17 +98,20 @@ def create_session_list_panel(sessions: list[Any]) -> Panel:
         except Exception:
             time_str = s.updated_at[:16]
 
-        table.add_row(
-            f"[{idx}]",
-            s.title,
-            time_str,
-            s.id,
-        )
+        row_items = [f"[{idx}]", s.title]
+        if show_project_col:
+            p_label = getattr(s, "project_name", None) or "global"
+            row_items.append(p_label)
+        row_items.extend([time_str, s.id])
 
-    hint = Text(
-        "\nType session number (e.g. 1) or ID to switch, or press Enter to cancel.",
-        style="dim italic",
+        table.add_row(*row_items)
+
+    hint_text = (
+        "\nType session number (e.g. 1) or ID to switch, or press Enter to cancel."
+        if show_project_col
+        else "\nType session number (e.g. 1) or ID to switch, or Enter to cancel. (Use '/history all' for all projects)"
     )
+    hint = Text(hint_text, style="dim italic")
     return Panel(Group(table, hint), box=box.ROUNDED, border_style="cyan")
 
 
@@ -108,7 +122,7 @@ def create_help_table() -> Panel:
     cmd_table.add_column("Description", style="white")
 
     cmd_table.add_row("/help", "Show this help table")
-    cmd_table.add_row("/history", "Interactive session picker: browse and load past sessions")
+    cmd_table.add_row("/history [all]", "Browse and load past sessions (current project or all)")
     cmd_table.add_row("/new", "Start a new session")
     cmd_table.add_row("/tools", "List all 8 available tools and parameters")
     cmd_table.add_row("/config", "Display active provider, model, and env settings")
