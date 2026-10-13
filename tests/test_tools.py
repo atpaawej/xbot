@@ -93,6 +93,26 @@ async def test_write_and_read(setup_workspace):
 
 
 @pytest.mark.asyncio
+async def test_read_directory_listing(setup_workspace):
+    """Test read tool listing directory contents (action='list' or auto-directory)."""
+    (setup_workspace / "subdir").mkdir(parents=True, exist_ok=True)
+    (setup_workspace / "file_a.py").write_text("a = 1")
+    (setup_workspace / "file_b.txt").write_text("hello")
+
+    # Explicit action='list'
+    list_res = await read.fn(".", action="list")
+    assert "Directory listing" in list_res
+    assert "[DIR]  subdir/" in list_res
+    assert "[FILE] file_a.py" in list_res
+    assert "[FILE] file_b.txt" in list_res
+
+    # Auto-detection when passing directory path
+    auto_res = await read.fn(".")
+    assert "Directory listing" in auto_res
+    assert "[DIR]  subdir/" in auto_res
+
+
+@pytest.mark.asyncio
 async def test_edit(setup_workspace):
     """Test editing files with exact replacement."""
     await write.fn("code.py", "def hello():\n    print('world')\n")

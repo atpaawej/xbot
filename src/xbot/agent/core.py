@@ -66,7 +66,11 @@ AgentEvent = (
 class AgentManager:
     """Manages the AI SDK Agent, conversation memory, and streaming loop."""
 
-    def __init__(self, config: Optional[Config] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[Config] = None,
+        session_manager: Optional[Any] = None,
+    ) -> None:
         self.config = config or get_config()
         from xbot.config import set_config
         set_config(self.config)
@@ -80,6 +84,11 @@ class AgentManager:
         )
         self.model = Model(id=self.config.model_id, provider=self.provider)
         self.agent = Agent(tools=ALL_TOOLS)
+
+        from xbot.sessions import SessionManager, SessionSummary
+        self.session_manager = session_manager or SessionManager()
+        self.current_session: Optional[SessionSummary] = None
+
         self.messages: list[Message] = []
         self._init_messages()
 
@@ -91,7 +100,23 @@ class AgentManager:
 
     def reset(self) -> None:
         """Reset conversation memory while preserving system configuration."""
+        self.current_session = None
         self._init_messages()
+
+    def load_session(self, session_id: str) -> bool:
+        """Load an existing session and restore its conversation trace."""
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            return False
+
+        loaded_msgs = self.session_manager.load_messages(session_id)
+        # Filter out any old system messages and prepend current system message
+        non_system = [m for m in loaded_msgs if getattr(m, "role", None) != "system"]
+        self.messages = [
+            system_message(get_system_prompt(self.config.workspace_dir))
+        ] + non_system
+        self.current_session = session
+        return True
 
     @property
     def turn_count(self) -> int:
@@ -115,6 +140,13 @@ class AgentManager:
                 "You can copy from .env.example to get started."
             )
             return
+
+        # Ensure active session exists
+        if self.current_session is None:
+            self.current_session = self.session_manager.create_session(
+                first_prompt=user_input,
+                model_id=self.config.model_id,
+            )
 
         # Append user message
         self.messages.append(user_message(user_input))
@@ -178,6 +210,10 @@ class AgentManager:
 
                 # Persist updated conversation trace from the stream
                 self.messages = stream.messages
+                if self.current_session:
+                    self.session_manager.save_messages(
+                        self.current_session.id, self.messages
+                    )
 
         except Exception as exc:
             err_msg = str(exc)

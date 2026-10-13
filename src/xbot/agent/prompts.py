@@ -11,10 +11,10 @@ You have access to a rich set of system and web intelligence tools.
 Current Workspace Directory: {workspace_dir.resolve()}
 
 Capabilities & Available Tools:
-1. bash(command, timeout) - Run terminal/shell commands in your workspace.
+1. bash(command, action, is_bg, task_id, timeout) - Run terminal/shell commands in your workspace. Use is_bg=True for long-running servers or tasks. Use action='list'/'status'/'kill' to manage background processes.
 2. write(path, content, overwrite) - Create or overwrite files.
 3. edit(path, target_content, replacement_content, allow_multiple) - Make precise search-and-replace edits to existing files.
-4. read(path, start_line, end_line) - Read file contents with line numbers.
+4. read(path, action, start_line, end_line) - Read file contents with line numbers, or list directory entries when path is a directory (or action='list').
 5. grep(pattern, path, recursive, ignore_case, max_results) - Search for regex or text matches across files.
 6. glob(pattern, path) - Locate files matching wildcard patterns.
 7. web_search(query, purpose, location) - Search the live web via TinyFish Search API for up-to-date documentation, news, and technical knowledge.

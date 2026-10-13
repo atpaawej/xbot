@@ -17,10 +17,10 @@ ALL_TOOLS = [
 ]
 
 TOOL_METADATA = {
-    "bash": "Execute shell commands in the workspace environment",
+    "bash": "Execute shell commands or manage background processes (run, list, status, kill)",
     "write": "Create or overwrite files with specified content",
     "edit": "Search and replace exact content blocks in existing files",
-    "read": "Read file contents with line numbering and optional range slicing",
+    "read": "Read file contents with line numbering, or list directory entries",
     "grep": "Search for regex or text patterns across files",
     "glob": "Find files matching wildcard paths",
     "web_search": "Search live web via TinyFish Web Search API",

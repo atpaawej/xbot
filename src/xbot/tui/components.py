@@ -17,7 +17,7 @@ from xbot.tools import TOOL_METADATA
 from xbot.tui.formatting import format_json, truncate_preview
 
 
-def create_banner(config: Config) -> Panel:
+def create_banner(config: Config, session_title: Optional[str] = None) -> Panel:
     """Render the startup banner with active configuration summary."""
     logo = Text()
     logo.append("  ██╗  ██╗██████╗  ██████╗ ████████╗\n", style="bold cyan")
@@ -33,10 +33,12 @@ def create_banner(config: Config) -> Panel:
     table.add_column("Key", style="bold yellow")
     table.add_column("Value", style="bright_white")
 
+    active_session = session_title or "New Session"
+    table.add_row("Session", f"[bold bright_green]{active_session}[/bold bright_green]")
     table.add_row("Model", config.model_id)
     table.add_row("Provider URL", config.base_url)
     table.add_row("LLM Key", config.masked_api_key)
-    
+
     tf_status = (
         "[bold green]Connected[/bold green]"
         if config.is_tinyfish_configured
@@ -55,7 +57,7 @@ def create_banner(config: Config) -> Panel:
         Align.center(logo),
         Text("─" * 60, style="dim"),
         table,
-        Text("Type your prompt or /help for slash commands. Press Ctrl+C to cancel, Ctrl+D to exit.", style="dim italic"),
+        Text("Type prompt or /help. Use Alt+Enter for multi-line. Press Ctrl+C to cancel.", style="dim italic"),
     )
 
     return Panel(
@@ -68,6 +70,37 @@ def create_banner(config: Config) -> Panel:
     )
 
 
+def create_session_list_panel(sessions: list[Any]) -> Panel:
+    """Render interactive session list table without turns."""
+    table = Table(box=box.ROUNDED, title="[bold cyan]Saved Sessions History[/bold cyan]")
+    table.add_column("[#]", style="bold yellow", justify="center", width=5)
+    table.add_column("Title", style="bold white")
+    table.add_column("Updated", style="cyan")
+    table.add_column("Session ID", style="dim")
+
+    for idx, s in enumerate(sessions, start=1):
+        # Format updated timestamp cleanly
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(s.updated_at)
+            time_str = dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            time_str = s.updated_at[:16]
+
+        table.add_row(
+            f"[{idx}]",
+            s.title,
+            time_str,
+            s.id,
+        )
+
+    hint = Text(
+        "\nType session number (e.g. 1) or ID to switch, or press Enter to cancel.",
+        style="dim italic",
+    )
+    return Panel(Group(table, hint), box=box.ROUNDED, border_style="cyan")
+
+
 def create_help_table() -> Panel:
     """Render help table with slash commands and core tools."""
     cmd_table = Table(title="[bold yellow]⚡ Slash Commands[/bold yellow]", box=box.ROUNDED)
@@ -75,10 +108,10 @@ def create_help_table() -> Panel:
     cmd_table.add_column("Description", style="white")
 
     cmd_table.add_row("/help", "Show this help table")
+    cmd_table.add_row("/history", "Interactive session picker: browse and load past sessions")
+    cmd_table.add_row("/new", "Start a new session")
     cmd_table.add_row("/tools", "List all 8 available tools and parameters")
     cmd_table.add_row("/config", "Display active provider, model, and env settings")
-    cmd_table.add_row("/history", "View session message statistics")
-    cmd_table.add_row("/reset", "Clear conversation memory and start fresh turn")
     cmd_table.add_row("/clear", "Clear terminal screen")
     cmd_table.add_row("/exit, /quit", "Exit the agent session")
 

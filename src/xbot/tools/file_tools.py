@@ -114,26 +114,49 @@ async def edit(
 @tool
 async def read(
     path: str,
+    action: str = "read",
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
 ) -> str:
-    """Read contents of a file with line numbers.
+    """Read contents of a file with line numbers or list directory contents.
 
     Args:
-        path: Relative or absolute path to the file.
-        start_line: Optional 1-indexed start line.
-        end_line: Optional 1-indexed end line (inclusive).
+        path: Relative or absolute path to the file or directory.
+        action: 'read' to read file contents, or 'list' (or 'ls') to list directory entries.
+                If path points to a directory, it automatically lists its contents.
+        start_line: Optional 1-indexed start line when reading files.
+        end_line: Optional 1-indexed end line (inclusive) when reading files.
 
     Returns:
-        File contents formatted with line numbers, or an error message.
+        File contents formatted with line numbers, directory listing, or an error message.
     """
     try:
         target = _resolve_path(path)
         if not target.exists():
-            return f"Error: File '{path}' does not exist."
-        if not target.is_file():
-            return f"Error: Path '{path}' is a directory, not a file."
+            return f"Error: Path '{path}' does not exist."
 
+        act = (action or "read").strip().lower()
+
+        # Handle directory listing (either explicitly requested or target is a directory)
+        if act in ("list", "ls") or target.is_dir():
+            if not target.is_dir():
+                return f"Error: Path '{path}' is a file, not a directory. Use action='read' to read its content."
+
+            entries = list(target.iterdir())
+            # Filter ignored dirs if listing root
+            dirs = sorted([e for e in entries if e.is_dir() and e.name not in IGNORE_DIRS], key=lambda x: x.name)
+            files = sorted([e for e in entries if e.is_file()], key=lambda x: x.name)
+
+            lines = [f"--- Directory listing: {path} ({len(dirs)} dirs, {len(files)} files) ---"]
+            for d in dirs:
+                lines.append(f"  [DIR]  {d.name}/")
+            for f in files:
+                size = f.stat().st_size
+                lines.append(f"  [FILE] {f.name:<30} ({size} bytes)")
+
+            return "\n".join(lines)
+
+        # File reading logic
         content = target.read_text(encoding="utf-8", errors="replace")
         lines = content.splitlines()
         total_lines = len(lines)
@@ -150,7 +173,7 @@ async def read(
         header = f"--- {path} (lines {s}-{e} of {total_lines}) ---"
         return f"{header}\n" + "\n".join(formatted)
     except Exception as exc:
-        return f"Error reading file '{path}': {exc}"
+        return f"Error reading '{path}': {exc}"
 
 
 @tool

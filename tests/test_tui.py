@@ -27,8 +27,22 @@ def test_tui_components_render(tmp_path):
         loaded_env_files=[str(tmp_path / ".env")],
     )
 
-    banner = create_banner(cfg)
+    banner = create_banner(cfg, session_title="Custom Session Title")
     assert banner is not None
+
+    from xbot.sessions import SessionSummary
+    dummy_sessions = [
+        SessionSummary(
+            id="sess_123",
+            title="Build React App",
+            created_at="2026-10-13T00:00:00",
+            updated_at="2026-10-13T01:00:00",
+            model_id="gpt-4o",
+        )
+    ]
+    from xbot.tui.components import create_session_list_panel
+    sess_panel = create_session_list_panel(dummy_sessions)
+    assert sess_panel is not None
 
     help_panel = create_help_table()
     assert help_panel is not None
