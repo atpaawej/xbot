@@ -174,3 +174,34 @@ async def test_web_fetch_without_key():
     res = await web_fetch.fn("https://example.com")
     assert "TinyFish API key is not configured" in res
     assert "https://agent.tinyfish.ai/api-keys" in res
+
+
+@pytest.mark.asyncio
+async def test_file_tools_parameter_aliases(setup_workspace):
+    """Test that write, read, and edit accept alternative parameter names (file_path, contents, etc.)."""
+    # 1. write with file_path and contents
+    write_res = await write.fn(file_path="aliased.txt", contents="line 1\nline 2\n")
+    assert "Successfully wrote" in write_res
+    target = setup_workspace / "aliased.txt"
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") == "line 1\nline 2\n"
+
+    # 2. write with text parameter
+    write_text_res = await write.fn(file_path="aliased2.txt", text="sample text")
+    assert "Successfully wrote" in write_text_res
+    assert (setup_workspace / "aliased2.txt").read_text(encoding="utf-8") == "sample text"
+
+    # 3. read with file_path
+    read_res = await read.fn(file_path="aliased.txt")
+    assert "--- aliased.txt" in read_res
+    assert "line 1" in read_res
+
+    # 4. edit with file_path, old_string, new_string
+    edit_res = await edit.fn(
+        file_path="aliased.txt",
+        old_string="line 1",
+        new_string="replaced 1",
+    )
+    assert "Successfully replaced 1 occurrence(s)" in edit_res
+    assert "replaced 1" in target.read_text(encoding="utf-8")
+

@@ -36,84 +36,119 @@ def _resolve_path(path_str: str) -> Path:
 
 
 @tool
-async def write(path: str, content: str, overwrite: bool = True) -> str:
+async def write(
+    path: Optional[str] = None,
+    content: Optional[str] = None,
+    file_path: Optional[str] = None,
+    contents: Optional[str] = None,
+    text: Optional[str] = None,
+    overwrite: bool = True,
+) -> str:
     """Write or overwrite content to a file. Creates parent directories if they don't exist.
 
     Args:
-        path: Relative or absolute path to the file.
-        content: The text content to write.
+        path: Relative or absolute path to the file (also accepts file_path).
+        content: The text content to write (also accepts contents or text).
+        file_path: Alternative parameter name for path.
+        contents: Alternative parameter name for content.
+        text: Alternative parameter name for content.
         overwrite: Whether to overwrite if the file already exists (default: True).
 
     Returns:
         Status message with file path, line count, and byte size.
     """
+    target_path_str = path or file_path
+    if not target_path_str:
+        return "Error: File path is required. Please provide 'path' or 'file_path'."
+
+    target_content = content if content is not None else (contents if contents is not None else text)
+    if target_content is None:
+        return f"Error: Content is required to write to '{target_path_str}'. Please provide 'content' or 'contents'."
+
     try:
-        target = _resolve_path(path)
+        target = _resolve_path(target_path_str)
         if target.exists() and not overwrite:
-            return f"Error: File '{path}' already exists and overwrite is set to False."
+            return f"Error: File '{target_path_str}' already exists and overwrite is set to False."
 
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        target.write_text(target_content, encoding="utf-8")
 
-        line_count = len(content.splitlines())
-        byte_size = len(content.encode("utf-8"))
-        return f"Successfully wrote {line_count} lines ({byte_size} bytes) to '{path}'."
+        line_count = len(target_content.splitlines())
+        byte_size = len(target_content.encode("utf-8"))
+        return f"Successfully wrote {line_count} lines ({byte_size} bytes) to '{target_path_str}'."
     except Exception as exc:
-        return f"Error writing file '{path}': {exc}"
+        return f"Error writing file '{target_path_str}': {exc}"
 
 
 @tool
 async def edit(
-    path: str,
-    target_content: str,
-    replacement_content: str,
+    path: Optional[str] = None,
+    target_content: Optional[str] = None,
+    replacement_content: Optional[str] = None,
+    file_path: Optional[str] = None,
+    old_string: Optional[str] = None,
+    new_string: Optional[str] = None,
     allow_multiple: bool = False,
 ) -> str:
     """Replace an exact block of text in an existing file.
 
     Args:
-        path: Path to the target file.
-        target_content: The exact string block to replace.
-        replacement_content: The new string block to insert in its place.
+        path: Path to the target file (also accepts file_path).
+        target_content: The exact string block to replace (also accepts old_string).
+        replacement_content: The new string block to insert in its place (also accepts new_string).
+        file_path: Alternative parameter name for path.
+        old_string: Alternative parameter name for target_content.
+        new_string: Alternative parameter name for replacement_content.
         allow_multiple: If True, replaces all occurrences. If False, requires target to match exactly once.
 
     Returns:
         Status message describing the replacement outcome.
     """
+    target_path_str = path or file_path
+    if not target_path_str:
+        return "Error: File path is required. Please provide 'path' or 'file_path'."
+
+    target_str = target_content if target_content is not None else old_string
+    if target_str is None:
+        return f"Error: Target content to replace is required for '{target_path_str}'."
+
+    replacement_str = replacement_content if replacement_content is not None else (new_string or "")
+
     try:
-        target = _resolve_path(path)
+        target = _resolve_path(target_path_str)
         if not target.is_file():
-            return f"Error: File '{path}' does not exist or is not a file."
+            return f"Error: File '{target_path_str}' does not exist or is not a file."
 
         original = target.read_text(encoding="utf-8")
 
-        count = original.count(target_content)
+        count = original.count(target_str)
         if count == 0:
             return (
-                f"Error: target_content not found in '{path}'. "
+                f"Error: target_content not found in '{target_path_str}'. "
                 "Please verify the exact text including whitespace and indentation."
             )
 
         if count > 1 and not allow_multiple:
             return (
-                f"Error: target_content found {count} times in '{path}'. "
+                f"Error: target_content found {count} times in '{target_path_str}'. "
                 "Provide more surrounding context lines to make it unique, or set allow_multiple=True."
             )
 
         if allow_multiple:
-            modified = original.replace(target_content, replacement_content)
+            modified = original.replace(target_str, replacement_str)
         else:
-            modified = original.replace(target_content, replacement_content, 1)
+            modified = original.replace(target_str, replacement_str, 1)
 
         target.write_text(modified, encoding="utf-8")
-        return f"Successfully replaced {count} occurrence(s) in '{path}'."
+        return f"Successfully replaced {count} occurrence(s) in '{target_path_str}'."
     except Exception as exc:
-        return f"Error editing file '{path}': {exc}"
+        return f"Error editing file '{target_path_str}': {exc}"
 
 
 @tool
 async def read(
-    path: str,
+    path: Optional[str] = None,
+    file_path: Optional[str] = None,
     action: str = "read",
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
@@ -121,33 +156,35 @@ async def read(
     """Read contents of a file with line numbers or list directory contents.
 
     Args:
-        path: Relative or absolute path to the file or directory.
+        path: Relative or absolute path to the file or directory (also accepts file_path).
+        file_path: Alternative parameter name for path.
         action: 'read' to read file contents, or 'list' (or 'ls') to list directory entries.
                 If path points to a directory, it automatically lists its contents.
         start_line: Optional 1-indexed start line when reading files.
         end_line: Optional 1-indexed end line (inclusive) when reading files.
 
     Returns:
-        File contents formatted with line numbers, directory listing, or an error message.
+        Formatted file text with line numbers or formatted directory listing.
     """
+    target_path_str = path or file_path or "."
     try:
-        target = _resolve_path(path)
+        target = _resolve_path(target_path_str)
         if not target.exists():
-            return f"Error: Path '{path}' does not exist."
+            return f"Error: Path '{target_path_str}' does not exist."
 
         act = (action or "read").strip().lower()
 
         # Handle directory listing (either explicitly requested or target is a directory)
         if act in ("list", "ls") or target.is_dir():
             if not target.is_dir():
-                return f"Error: Path '{path}' is a file, not a directory. Use action='read' to read its content."
+                return f"Error: Path '{target_path_str}' is a file, not a directory. Use action='read' to read its content."
 
             entries = list(target.iterdir())
             # Filter ignored dirs if listing root
             dirs = sorted([e for e in entries if e.is_dir() and e.name not in IGNORE_DIRS], key=lambda x: x.name)
             files = sorted([e for e in entries if e.is_file()], key=lambda x: x.name)
 
-            lines = [f"--- Directory listing: {path} ({len(dirs)} dirs, {len(files)} files) ---"]
+            lines = [f"--- Directory listing: {target_path_str} ({len(dirs)} dirs, {len(files)} files) ---"]
             for d in dirs:
                 lines.append(f"  [DIR]  {d.name}/")
             for f in files:
@@ -165,15 +202,15 @@ async def read(
         e = min(total_lines, end_line) if end_line is not None else total_lines
 
         if s > total_lines:
-            return f"Error: start_line {s} exceeds total lines ({total_lines}) in '{path}'."
+            return f"Error: start_line {s} exceeds total lines ({total_lines}) in '{target_path_str}'."
 
         selected = lines[s - 1 : e]
         formatted = [f"{s + idx:6d} | {line}" for idx, line in enumerate(selected)]
 
-        header = f"--- {path} (lines {s}-{e} of {total_lines}) ---"
+        header = f"--- {target_path_str} (lines {s}-{e} of {total_lines}) ---"
         return f"{header}\n" + "\n".join(formatted)
     except Exception as exc:
-        return f"Error reading '{path}': {exc}"
+        return f"Error reading '{target_path_str}': {exc}"
 
 
 @tool

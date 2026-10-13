@@ -157,3 +157,54 @@ async def test_tui_run_turn_interrupted(tmp_path):
     last_msg = mock_agent.messages[-1]
     assert "[Interrupted by user]" in str(last_msg)
 
+
+@pytest.mark.asyncio
+async def test_tui_run_turn_with_thinking_and_tools(tmp_path):
+    """Test run_turn handles thinking drawer, tool lifecycle, and streaming text seamlessly."""
+    from xbot.agent import (
+        AgentReasoningDelta,
+        AgentTextDelta,
+        AgentToolEnd,
+        AgentToolResult,
+        AgentToolStart,
+    )
+
+    cfg = Config(
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        model_id="gpt-4o",
+        tinyfish_api_key="tf-test",
+        workspace_dir=tmp_path,
+        bash_timeout=30,
+        temperature=0.0,
+        loaded_env_files=[],
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.config = cfg
+    mock_agent.messages = []
+    mock_agent.current_session = None
+
+    async def rich_stream(prompt):
+        # 1. Reasoning
+        yield AgentReasoningDelta("I will check the directory contents using bash.\n")
+        yield AgentReasoningDelta("Running ls command.")
+        # 2. Tool invocation
+        yield AgentToolStart(tool_name="bash", tool_call_id="call_99")
+        yield AgentToolEnd(tool_name="bash", tool_call_id="call_99", args={"command": "ls -la"})
+        yield AgentToolResult(
+            tool_name="bash",
+            tool_call_id="call_99",
+            result="Exit code: 0\nfile1.txt\nfile2.txt",
+            is_error=False,
+        )
+        # 3. Final synthesis
+        yield AgentTextDelta("Found files: file1.txt and file2.txt")
+
+    mock_agent.stream_turn = rich_stream
+    tui = XBotTUI(agent_manager=mock_agent)
+
+    with patch("xbot.tui.app.listen_for_escape"):
+        await tui.run_turn("show me files")
+
+

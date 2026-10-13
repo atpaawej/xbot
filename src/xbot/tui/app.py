@@ -88,6 +88,7 @@ async def listen_for_escape(cancel_event: asyncio.Event) -> None:
             except Exception:
                 pass
 
+import time
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
@@ -110,6 +111,12 @@ from xbot.agent import (
 )
 from xbot.commands import SlashCompleter, get_default_registry
 from xbot.config import get_config
+from xbot.tui.cards import (
+    ThinkingDrawer,
+    ToolCardState,
+    ToolState,
+    render_tool_card,
+)
 from xbot.tui.components import (
     create_banner,
     create_config_table,
@@ -206,9 +213,12 @@ class XBotTUI:
         self.console.print("[bold cyan]🤖 xbot[/bold cyan] [dim]thinking... (press Esc to cancel)[/dim]")
 
         accumulated_text = ""
-        accumulated_reasoning = ""
         status: Optional[Status] = None
         live_markdown: Optional[Live] = None
+        thinking_drawer: Optional[ThinkingDrawer] = None
+        live_thinking: Optional[Live] = None
+        active_tool_card: Optional[ToolCardState] = None
+        live_tool: Optional[Live] = None
 
         def stop_status():
             nonlocal status
@@ -222,11 +232,27 @@ class XBotTUI:
                 live_markdown.stop()
                 live_markdown = None
 
+        def finalize_thinking():
+            nonlocal thinking_drawer, live_thinking
+            if live_thinking and live_thinking.is_started:
+                live_thinking.stop()
+                live_thinking = None
+            if thinking_drawer:
+                thinking_drawer.finalize()
+                self.console.print(thinking_drawer.render_collapsed())
+                thinking_drawer = None
+
+        def stop_tool():
+            nonlocal active_tool_card, live_tool
+            if live_tool and live_tool.is_started:
+                live_tool.stop()
+                live_tool = None
+
         cancel_event = asyncio.Event()
         listener_task = asyncio.create_task(listen_for_escape(cancel_event))
 
         async def _consume_stream():
-            nonlocal accumulated_text, accumulated_reasoning, status, live_markdown
+            nonlocal accumulated_text, status, live_markdown, thinking_drawer, live_thinking, active_tool_card, live_tool
             status = self.console.status("[bold cyan]Connecting to model...[/bold cyan]", spinner="dots")
             status.start()
 
@@ -235,13 +261,26 @@ class XBotTUI:
                     break
 
                 if isinstance(event, AgentReasoningDelta):
-                    accumulated_reasoning += event.chunk
-                    if status and status._live.is_started:
-                        preview = accumulated_reasoning[-40:].replace("\n", " ")
-                        status.update(f"[bold magenta]Reasoning: [dim]{preview}[/dim][/bold magenta]")
+                    stop_status()
+                    if thinking_drawer is None:
+                        thinking_drawer = ThinkingDrawer()
+                        thinking_drawer.append(event.chunk)
+                        live_thinking = Live(
+                            thinking_drawer.render_live(),
+                            console=self.console,
+                            refresh_per_second=10,
+                            transient=True,
+                        )
+                        live_thinking.start()
+                    else:
+                        thinking_drawer.append(event.chunk)
+                        if live_thinking and live_thinking.is_started:
+                            live_thinking.update(thinking_drawer.render_live())
 
                 elif isinstance(event, AgentTextDelta):
+                    finalize_thinking()
                     stop_status()
+                    stop_tool()
                     accumulated_text += event.chunk
 
                     # Start or update Rich Live Markdown renderer
@@ -256,41 +295,85 @@ class XBotTUI:
                         live_markdown.update(format_markdown(accumulated_text))
 
                 elif isinstance(event, AgentToolStart):
+                    finalize_thinking()
                     stop_live()
                     stop_status()
+                    stop_tool()
 
-                    status = self.console.status(
-                        f"[bold yellow]Invoking {event.tool_name}...[/bold yellow]",
-                        spinner="bouncingBar",
+                    active_tool_card = ToolCardState(
+                        tool_name=event.tool_name,
+                        tool_call_id=event.tool_call_id,
+                        state=ToolState.RUNNING,
                     )
-                    status.start()
+                    live_tool = Live(
+                        render_tool_card(active_tool_card),
+                        console=self.console,
+                        refresh_per_second=8,
+                        transient=True,
+                    )
+                    live_tool.start()
 
                 elif isinstance(event, AgentToolEnd):
+                    finalize_thinking()
                     stop_live()
                     stop_status()
-                    self.console.print(create_tool_call_panel(event.tool_name, event.args))
-                    status = self.console.status(
-                        f"[bold yellow]Running {event.tool_name}...[/bold yellow]",
-                        spinner="dots",
-                    )
-                    status.start()
+
+                    if active_tool_card and active_tool_card.tool_call_id == event.tool_call_id:
+                        active_tool_card.args = event.args
+                        if live_tool and live_tool.is_started:
+                            live_tool.update(render_tool_card(active_tool_card))
+                    else:
+                        stop_tool()
+                        active_tool_card = ToolCardState(
+                            tool_name=event.tool_name,
+                            tool_call_id=event.tool_call_id,
+                            args=event.args,
+                            state=ToolState.RUNNING,
+                        )
+                        live_tool = Live(
+                            render_tool_card(active_tool_card),
+                            console=self.console,
+                            refresh_per_second=8,
+                            transient=True,
+                        )
+                        live_tool.start()
 
                 elif isinstance(event, AgentToolResult):
+                    finalize_thinking()
                     stop_live()
                     stop_status()
-                    self.console.print(
-                        create_tool_result_panel(
-                            event.tool_name, event.result, is_error=event.is_error
+                    stop_tool()
+
+                    if active_tool_card and active_tool_card.tool_call_id == event.tool_call_id:
+                        active_tool_card.end_time = time.time()
+                        active_tool_card.state = (
+                            ToolState.ERROR if event.is_error else ToolState.SUCCESS
                         )
-                    )
+                        active_tool_card.result = event.result
+                        active_tool_card.is_error = event.is_error
+                        self.console.print(render_tool_card(active_tool_card))
+                        active_tool_card = None
+                    else:
+                        card = ToolCardState(
+                            tool_name=event.tool_name,
+                            tool_call_id=event.tool_call_id,
+                            state=ToolState.ERROR if event.is_error else ToolState.SUCCESS,
+                            result=event.result,
+                            is_error=event.is_error,
+                            end_time=time.time(),
+                        )
+                        self.console.print(render_tool_card(card))
+
                     # Reset text accumulator for post-tool synthesis
                     accumulated_text = ""
                     status = self.console.status("[bold cyan]Synthesizing response...[/bold cyan]", spinner="dots")
                     status.start()
 
                 elif isinstance(event, AgentError):
+                    finalize_thinking()
                     stop_live()
                     stop_status()
+                    stop_tool()
                     self.console.print()
                     self.console.print(
                         Panel(
@@ -300,8 +383,10 @@ class XBotTUI:
                         )
                     )
 
+            finalize_thinking()
             stop_status()
             stop_live()
+            stop_tool()
 
         try:
             stream_task = asyncio.create_task(_consume_stream())
@@ -320,8 +405,10 @@ class XBotTUI:
                     except (asyncio.CancelledError, Exception):
                         pass
 
+                finalize_thinking()
                 stop_status()
                 stop_live()
+                stop_tool()
                 self.console.print("\n[bold yellow]⏹ Interrupted by user (Esc pressed).[/bold yellow]")
 
                 # Retain partial conversation in session history
@@ -344,12 +431,16 @@ class XBotTUI:
                     raise stream_task.exception()
 
         except asyncio.CancelledError:
+            finalize_thinking()
             stop_status()
             stop_live()
+            stop_tool()
             self.console.print("\n[dim]Action cancelled.[/dim]")
         except Exception as exc:
+            finalize_thinking()
             stop_status()
             stop_live()
+            stop_tool()
             self.console.print(f"\n[bold red]Execution error:[/bold red] {exc}\n")
         finally:
             if not listener_task.done():

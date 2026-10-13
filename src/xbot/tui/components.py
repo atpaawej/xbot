@@ -186,33 +186,36 @@ def create_tools_table() -> Panel:
     return Panel(table, box=box.ROUNDED, border_style="green")
 
 
+from xbot.tui.cards import (
+    ThinkingDrawer,
+    ToolCardState,
+    ToolState,
+    render_tool_card,
+)
+
+
 def create_tool_call_panel(tool_name: str, args: dict[str, Any]) -> Panel:
-    """Render a panel for an outgoing tool call."""
-    args_renderable = format_json(args)
-    return Panel(
-        args_renderable,
-        box=box.ROUNDED,
-        border_style="bright_blue",
-        title=f"[bold bright_blue]🔧 Calling Tool: [bold white]{tool_name}[/bold white][/bold bright_blue]",
-        subtitle="[dim]Arguments[/dim]",
-        padding=(0, 1),
+    """Render a polymorphic card for an outgoing tool call in RUNNING state."""
+    state = ToolCardState(
+        tool_name=tool_name,
+        tool_call_id="call",
+        args=args or {},
+        state=ToolState.RUNNING,
     )
+    return render_tool_card(state)
 
 
 def create_tool_result_panel(
     tool_name: str, result: str, is_error: bool = False
 ) -> Panel:
-    """Render a panel for a tool execution result."""
-    border_style = "bold red" if is_error else "bold green"
-    title_prefix = "❌ Tool Error" if is_error else "✓ Tool Result"
-
-    # Preview handling
-    preview = truncate_preview(result)
-
-    return Panel(
-        Text(preview),
-        box=box.ROUNDED,
-        border_style=border_style,
-        title=f"[{border_style}]{title_prefix}: [bold white]{tool_name}[/bold white][/{border_style}]",
-        padding=(0, 1),
+    """Render a polymorphic card for a tool execution result."""
+    state = ToolCardState(
+        tool_name=tool_name,
+        tool_call_id="result",
+        args={},
+        state=ToolState.ERROR if is_error else ToolState.SUCCESS,
+        result=result,
+        is_error=is_error,
     )
+    return render_tool_card(state)
+
