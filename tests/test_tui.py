@@ -1,6 +1,7 @@
 """Tests for Rich TUI components and formatting."""
 
 from pathlib import Path
+import pytest
 
 from xbot.config import Config
 from xbot.tui.components import (
@@ -77,3 +78,82 @@ def test_tui_formatting():
     long_text = "a" * 50
     truncated = truncate_preview(long_text, max_chars=20)
     assert "truncated 30 characters" in truncated
+
+
+import asyncio
+from unittest.mock import MagicMock, patch
+from xbot.tui.app import XBotTUI, listen_for_escape, poll_stdin_escape
+from xbot.agent import AgentTextDelta
+
+
+def test_poll_stdin_escape():
+    """Test poll_stdin_escape correctly identifies standalone escape byte."""
+    with patch("select.select", return_value=([1], [], [])):
+        with patch("os.read", return_value=b"\x1b"):
+            # Second select check for subsequent bytes returns empty (standalone Esc)
+            with patch("select.select", side_effect=[([1], [], []), ([], [], [])]):
+                assert poll_stdin_escape(0) is True
+
+    # When a non-escape byte arrives
+    with patch("select.select", return_value=([1], [], [])):
+        with patch("os.read", return_value=b"a"):
+            assert poll_stdin_escape(0) is False
+
+
+@pytest.mark.asyncio
+async def test_listen_for_escape_non_tty():
+    """Test listen_for_escape exits immediately and cleanly when stdin is not a tty."""
+    cancel_event = asyncio.Event()
+    with patch("sys.stdin.isatty", return_value=False):
+        await listen_for_escape(cancel_event)
+        assert not cancel_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_tui_run_turn_interrupted(tmp_path):
+    """Test run_turn cancels streaming when cancel_event is triggered."""
+    cfg = Config(
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        model_id="gpt-4o",
+        tinyfish_api_key="tf-test",
+        workspace_dir=tmp_path,
+        bash_timeout=30,
+        temperature=0.0,
+        loaded_env_files=[],
+    )
+
+    mock_agent = MagicMock()
+    mock_agent.config = cfg
+    mock_agent.messages = []
+    mock_agent.current_session = None
+
+    async def slow_stream(prompt):
+        yield AgentTextDelta("Hello world")
+        await asyncio.sleep(2.0)
+        yield AgentTextDelta(" More text")
+
+    mock_agent.stream_turn = slow_stream
+    tui = XBotTUI(agent_manager=mock_agent)
+
+    # Trigger cancel_event right after the turn starts
+    original_run_turn = tui.run_turn
+
+    async def cancel_soon():
+        await asyncio.sleep(0.05)
+        # Find cancel_event or simulate Esc
+        # We can simulate cancel by intercepting the event
+
+    # Patch listen_for_escape to immediately set cancel_event after brief sleep
+    async def mock_listen(cancel_event):
+        await asyncio.sleep(0.05)
+        cancel_event.set()
+
+    with patch("xbot.tui.app.listen_for_escape", side_effect=mock_listen):
+        await tui.run_turn("test question")
+
+    # Verify that an assistant message with interrupted note was appended
+    assert len(mock_agent.messages) > 0
+    last_msg = mock_agent.messages[-1]
+    assert "[Interrupted by user]" in str(last_msg)
+

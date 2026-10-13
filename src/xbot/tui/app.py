@@ -3,8 +3,90 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import select
 import sys
 from typing import Optional
+
+IS_WINDOWS = sys.platform.startswith("win")
+if not IS_WINDOWS:
+    try:
+        import termios
+        import tty
+    except ImportError:  # pragma: no cover
+        termios = None
+        tty = None
+else:
+    try:
+        import msvcrt
+    except ImportError:  # pragma: no cover
+        msvcrt = None
+
+
+def poll_stdin_escape(fd: int) -> bool:
+    """Non-blocking check if Escape was pressed on the given file descriptor."""
+    try:
+        r, _, _ = select.select([fd], [], [], 0.05)
+        if r:
+            byte = os.read(fd, 1)
+            if byte == b"\x1b":
+                # Check if this is part of an escape sequence (like arrow keys \x1b[A)
+                more, _, _ = select.select([fd], [], [], 0.03)
+                if more:
+                    os.read(fd, 32)  # Drain escape sequence
+                    return False
+                return True
+    except Exception:
+        pass
+    return False
+
+
+async def listen_for_escape(cancel_event: asyncio.Event) -> None:
+    """Listen for the Escape key in terminal raw/cbreak mode during active streaming turns."""
+    try:
+        if not sys.stdin.isatty():
+            return
+    except Exception:
+        return
+
+    loop = asyncio.get_running_loop()
+
+    if IS_WINDOWS:
+        def _check_win_esc() -> bool:
+            if msvcrt and msvcrt.kbhit():
+                ch = msvcrt.getch()
+                return ch == b"\x1b"
+            return False
+
+        while not cancel_event.is_set():
+            is_esc = await loop.run_in_executor(None, _check_win_esc)
+            if is_esc:
+                cancel_event.set()
+                break
+            await asyncio.sleep(0.02)
+    else:
+        if termios is None or tty is None:
+            return
+
+        try:
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+        except Exception:
+            return
+
+        try:
+            tty.setcbreak(fd)
+            while not cancel_event.is_set():
+                is_esc = await loop.run_in_executor(None, poll_stdin_escape, fd)
+                if is_esc:
+                    cancel_event.set()
+                    break
+                await asyncio.sleep(0.01)
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
@@ -121,7 +203,7 @@ class XBotTUI:
     async def run_turn(self, user_input: str) -> None:
         """Execute one conversational turn with streaming output, Markdown rendering, and tool cards."""
         self.console.print()
-        self.console.print("[bold cyan]🤖 xbot[/bold cyan] [dim]thinking...[/dim]")
+        self.console.print("[bold cyan]🤖 xbot[/bold cyan] [dim]thinking... (press Esc to cancel)[/dim]")
 
         accumulated_text = ""
         accumulated_reasoning = ""
@@ -140,11 +222,18 @@ class XBotTUI:
                 live_markdown.stop()
                 live_markdown = None
 
-        try:
+        cancel_event = asyncio.Event()
+        listener_task = asyncio.create_task(listen_for_escape(cancel_event))
+
+        async def _consume_stream():
+            nonlocal accumulated_text, accumulated_reasoning, status, live_markdown
             status = self.console.status("[bold cyan]Connecting to model...[/bold cyan]", spinner="dots")
             status.start()
 
             async for event in self.agent_manager.stream_turn(user_input):
+                if cancel_event.is_set():
+                    break
+
                 if isinstance(event, AgentReasoningDelta):
                     accumulated_reasoning += event.chunk
                     if status and status._live.is_started:
@@ -214,10 +303,63 @@ class XBotTUI:
             stop_status()
             stop_live()
 
+        try:
+            stream_task = asyncio.create_task(_consume_stream())
+            cancel_waiter = asyncio.create_task(cancel_event.wait())
+
+            done, pending = await asyncio.wait(
+                [stream_task, cancel_waiter],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if cancel_event.is_set():
+                if not stream_task.done():
+                    stream_task.cancel()
+                    try:
+                        await stream_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                stop_status()
+                stop_live()
+                self.console.print("\n[bold yellow]⏹ Interrupted by user (Esc pressed).[/bold yellow]")
+
+                # Retain partial conversation in session history
+                from ai import assistant_message
+                msg_content = (
+                    f"{accumulated_text}\n\n[Interrupted by user]"
+                    if accumulated_text
+                    else "[Interrupted by user]"
+                )
+                self.agent_manager.messages.append(assistant_message(msg_content))
+                if self.agent_manager.current_session:
+                    self.agent_manager.session_manager.save_messages(
+                        self.agent_manager.current_session.id,
+                        self.agent_manager.messages,
+                    )
+            else:
+                if not cancel_waiter.done():
+                    cancel_waiter.cancel()
+                if stream_task.exception():
+                    raise stream_task.exception()
+
+        except asyncio.CancelledError:
+            stop_status()
+            stop_live()
+            self.console.print("\n[dim]Action cancelled.[/dim]")
         except Exception as exc:
             stop_status()
             stop_live()
             self.console.print(f"\n[bold red]Execution error:[/bold red] {exc}\n")
+        finally:
+            if not listener_task.done():
+                listener_task.cancel()
+                try:
+                    await listener_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            stop_status()
+            stop_live()
 
         self.console.print()
 
