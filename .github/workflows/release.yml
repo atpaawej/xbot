@@ -28,9 +28,6 @@ jobs:
           - os: macos-latest
             artifact_name: xbot-macos-arm64
             binary_name: xbot
-          - os: macos-13
-            artifact_name: xbot-macos-x86_64
-            binary_name: xbot
           - os: windows-latest
             artifact_name: xbot-windows-x86_64.exe
             binary_name: xbot.exe
