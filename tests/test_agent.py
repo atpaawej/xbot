@@ -40,8 +40,10 @@ def test_system_prompt_behavioral_directives(tmp_path):
     assert "DISCOVER & ORIENT" in prompt
     assert "SURGICAL EXECUTION" in prompt
     assert "EMPIRICAL VERIFICATION" in prompt
-    assert "Two-Strike Rule" in prompt
     assert "Error Recovery & Anti-Looping Protocol" in prompt
+    assert "Behavioral Standards & Communication" in prompt
+    assert "Principled Honesty & Intellectual Integrity" in prompt
+    assert "Adaptive Alignment" in prompt
     assert "Environment Context" in prompt
     assert "Operating System:" in prompt
 
