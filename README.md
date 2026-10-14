@@ -46,7 +46,26 @@ xbot/
 
 ---
 
-## 🚀 Quickstart with `uv`
+## ⚡ Installation
+
+Install `xbot` as a standalone executable with a single command (no Python or virtual environment required):
+
+### macOS & Linux
+```bash
+curl -fsSL https://raw.githubusercontent.com/atpaawej/xbot/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/atpaawej/xbot/main/install.ps1 | iex
+```
+
+### Standalone Executables
+Precompiled standalone single-binary executables for **Linux (x86_64)**, **macOS (Apple Silicon & Intel)**, and **Windows (x86_64 .exe)** are also directly available on the [GitHub Releases](https://github.com/atpaawej/xbot/releases) page.
+
+---
+
+## 🚀 Quickstart from Source (Developers)
 
 ### 1. Prerequisites
 Install `uv` if you haven't already:

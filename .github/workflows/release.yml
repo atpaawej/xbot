@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. v0.1.0)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.artifact_name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: xbot-linux-x86_64
+            binary_name: xbot
+          - os: macos-latest
+            artifact_name: xbot-macos-arm64
+            binary_name: xbot
+          - os: macos-13
+            artifact_name: xbot-macos-x86_64
+            binary_name: xbot
+          - os: windows-latest
+            artifact_name: xbot-windows-x86_64.exe
+            binary_name: xbot.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -e .
+          uv pip install --system pyinstaller
+
+      - name: Build Standalone Executable
+        run: |
+          python packaging/build.py --clean
+
+      - name: Package & Generate Checksum (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mv dist/${{ matrix.binary_name }} dist/${{ matrix.artifact_name }}
+          cd dist
+          shasum -a 256 ${{ matrix.artifact_name }} > ${{ matrix.artifact_name }}.sha256
+
+      - name: Package & Generate Checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Move-Item dist/${{ matrix.binary_name }} dist/${{ matrix.artifact_name }}
+          Set-Location dist
+          $hash = (Get-FileHash -Algorithm SHA256 ${{ matrix.artifact_name }}).Hash.ToLower()
+          "$hash  ${{ matrix.artifact_name }}" | Out-File -Encoding ascii -NoNewline "${{ matrix.artifact_name }}.sha256"
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            dist/${{ matrix.artifact_name }}
+            dist/${{ matrix.artifact_name }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Assets & Consolidated Checksums
+        run: |
+          mkdir -p release_assets
+          find artifacts -type f \( -name "xbot-*" \) ! -name "*.sha256" -exec cp {} release_assets/ \;
+          find artifacts -type f -name "*.sha256" -exec cat {} + > release_assets/checksums.txt
+          echo "Release assets prepared:"
+          ls -lh release_assets/
+
+      - name: Determine Tag Name
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            echo "val=${{ github.event.inputs.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "val=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.val }}
+          files: release_assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
