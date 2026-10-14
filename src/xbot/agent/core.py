@@ -100,6 +100,23 @@ class AgentManager:
             system_message(get_system_prompt(self.config.workspace_dir))
         ]
 
+    def update_config(self, new_config: Config) -> None:
+        """Update active configuration, reinitializing provider and model."""
+        self.config = new_config
+        from xbot.config import set_config
+        set_config(self.config)
+        self.provider = OpenAICompatibleProvider(
+            name="openai-compatible",
+            default_base_url=self.config.base_url,
+            api_key_value=self.config.api_key or "not-provided",
+            protocol_override=OpenAIChatCompletionsProtocol(),
+            headers={},
+            env={},
+        )
+        self.model = Model(id=self.config.model_id, provider=self.provider)
+        if self.messages:
+            self.messages[0] = system_message(get_system_prompt(self.config.workspace_dir))
+
     def reset(self) -> None:
         """Reset conversation memory while preserving system configuration."""
         self.current_session = None

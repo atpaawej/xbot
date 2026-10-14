@@ -1,5 +1,6 @@
 """Unit and integration tests for the slash command system and InquirerPy UI primitives."""
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,10 +43,13 @@ def mock_agent_manager():
     mgr.config.masked_api_key = "sk-***"
     mgr.config.masked_tinyfish_key = "tf-***"
     mgr.config.is_tinyfish_configured = False
-    mgr.config.workspace_dir = "/tmp"
+    mgr.config.workspace_dir = Path("/tmp")
+    mgr.config.data_dir = Path("/tmp/.xbot")
     mgr.config.bash_timeout = 30
     mgr.config.temperature = 0.0
     mgr.config.loaded_env_files = []
+    mgr.config.loaded_config_files = []
+    mgr.config.raw_settings = {}
 
     curr_session = MagicMock()
     curr_session.title = "Current Session"
@@ -294,6 +298,59 @@ async def test_builtin_info_commands(console, mock_agent_manager):
     res_tools = await tools_cmd.execute(ctx)
     assert res_tools.handled is True
     assert "Agent Registered Tools" in console.export_text()
+
+
+async def test_config_command_path(console, mock_agent_manager):
+    cmd = ConfigCommand()
+    ctx = CommandContext.create(console, mock_agent_manager, raw_args="path")
+    res = await cmd.execute(ctx)
+    assert res.handled is True
+    output = console.export_text()
+    assert "Config File Paths" in output
+    assert "Global Settings:" in output
+    assert "Project Settings:" in output
+
+
+async def test_config_command_get(console, mock_agent_manager):
+    cmd = ConfigCommand()
+    # Test valid key (with alias normalization)
+    ctx = CommandContext.create(console, mock_agent_manager, raw_args="get model")
+    res = await cmd.execute(ctx)
+    assert res.handled is True
+    assert "model_id = gpt-4o" in console.export_text()
+
+    # Test unknown key
+    ctx_unknown = CommandContext.create(console, mock_agent_manager, raw_args="get nonexistent_key")
+    await cmd.execute(ctx_unknown)
+    assert "not found" in console.export_text()
+
+
+async def test_config_command_set(console, mock_agent_manager, tmp_path):
+    mock_agent_manager.config.workspace_dir = tmp_path
+    mock_agent_manager.config.data_dir = tmp_path / "data"
+
+    cmd = ConfigCommand()
+    ctx = CommandContext.create(console, mock_agent_manager, raw_args="set model_id claude-3-5-sonnet")
+    res = await cmd.execute(ctx)
+    assert res.handled is True
+    mock_agent_manager.update_config.assert_called_once()
+    assert "Updated model_id to 'claude-3-5-sonnet'" in console.export_text()
+
+
+async def test_config_command_interactive(console, mock_agent_manager, tmp_path):
+    mock_agent_manager.config.workspace_dir = tmp_path
+    mock_agent_manager.config.data_dir = tmp_path / "data"
+
+    cmd = ConfigCommand()
+    tui_mock = MagicMock()
+    ctx = CommandContext.create(console, mock_agent_manager, raw_args="", tui=tui_mock)
+
+    with patch.object(ctx, "select", new=AsyncMock(side_effect=["update", "model_id", "global"])) as mock_select, \
+         patch.object(ctx, "ask", new=AsyncMock(return_value="o3-mini")) as mock_ask:
+        res = await cmd.execute(ctx)
+        assert res.handled is True
+        mock_agent_manager.update_config.assert_called_once()
+        assert "Successfully updated model_id" in console.export_text()
 
 
 def test_get_default_registry():

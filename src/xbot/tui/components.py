@@ -47,11 +47,16 @@ def create_banner(config: Config, session_title: Optional[str] = None) -> Panel:
     table.add_row("TinyFish", tf_status)
     table.add_row("Workspace", str(config.workspace_dir))
 
+    cfg_files = getattr(config, "loaded_config_files", [])
+    if cfg_files:
+        files_str = ", ".join(f"[cyan]{f}[/cyan]" for f in cfg_files)
+        table.add_row("Settings Files", files_str)
+
     if config.loaded_env_files:
         files_str = ", ".join(f"[cyan]{f}[/cyan]" for f in config.loaded_env_files)
         table.add_row("Env Files", files_str)
-    else:
-        table.add_row("Env Files", "[dim]None (using process environment)[/dim]")
+    elif not cfg_files:
+        table.add_row("Config Files", "[dim]None (defaults / process environment)[/dim]")
 
     content = Group(
         Align.center(logo),
@@ -157,7 +162,13 @@ def create_config_table(config: Config) -> Panel:
     table.add_row("Workspace Dir", str(config.workspace_dir))
     table.add_row("Bash Timeout", f"{config.bash_timeout}s")
     table.add_row("Temperature", str(config.temperature))
-    table.add_row("Loaded Env Files", ", ".join(config.loaded_env_files) or "None")
+    table.add_row("Global Data Dir", str(config.data_dir))
+    cfg_files = getattr(config, "loaded_config_files", [])
+    table.add_row(
+        "Settings Files",
+        ", ".join(cfg_files) or "[dim]None (~/.xbot/settings.json not found)[/dim]",
+    )
+    table.add_row("Loaded Env Files", ", ".join(config.loaded_env_files) or "[dim]None[/dim]")
 
     return Panel(table, box=box.ROUNDED, border_style="cyan")
 
