@@ -128,7 +128,7 @@ from xbot.tui.components import (
 )
 from xbot.tui.formatting import format_markdown
 
-COMMANDS = ["/help", "/resume", "/history", "/new", "/clear", "/config", "/tools", "/exit", "/quit"]
+COMMANDS = ["/help", "/login", "/auth", "/model", "/resume", "/history", "/new", "/clear", "/config", "/tools", "/exit", "/quit"]
 
 
 class XBotTUI:

@@ -35,7 +35,16 @@ def create_banner(config: Config, session_title: Optional[str] = None) -> Panel:
 
     active_session = session_title or "New Session"
     table.add_row("Session", f"[bold bright_green]{active_session}[/bold bright_green]")
-    table.add_row("Model", config.model_id)
+    table.add_row("Model", f"[bold bright_cyan]{config.model_id}[/bold bright_cyan]")
+
+    try:
+        from xbot.providers.auth import get_auth_store
+        auth_providers = get_auth_store().get_authenticated_providers()
+        if auth_providers:
+            table.add_row("Providers", ", ".join(auth_providers))
+    except Exception:
+        pass
+
     table.add_row("Provider URL", config.base_url)
     table.add_row("LLM Key", config.masked_api_key)
 

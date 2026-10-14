@@ -295,10 +295,35 @@ class Config:
         )
         api_key = str(raw_api_key).strip()
 
+        # Check auth.json in final_data_dir for active_model
+        auth_active_model: Optional[str] = None
+        auth_store = None
+        try:
+            from xbot.providers.auth import AuthStore
+            auth_store = AuthStore(final_data_dir / "auth.json")
+            auth_active_model = auth_store.get_active_model()
+        except Exception:
+            auth_active_model = None
+
+        default_model = auth_active_model or "gpt-4o"
         raw_model = resolve_setting(
-            ["MODEL_ID", "OPENAI_MODEL_NAME", "MODEL_NAME"], "model_id", "gpt-4o"
+            ["MODEL_ID", "OPENAI_MODEL_NAME", "MODEL_NAME"], "model_id", default_model
         )
         model_id = str(raw_model).strip()
+
+        # If api_key was not provided, check auth.json for the provider
+        if not api_key and auth_store is not None:
+            try:
+                from xbot.providers.models import parse_model_ref
+                if "/" in model_id:
+                    p_id, _ = parse_model_ref(model_id)
+                    resolved_key, resolved_url = auth_store.resolve_credentials(p_id)
+                    if resolved_key:
+                        api_key = resolved_key
+                    if resolved_url and raw_base_url == "https://api.openai.com/v1":
+                        base_url = resolved_url.rstrip("/")
+            except Exception:
+                pass
 
         raw_tinyfish = resolve_setting(
             ["TINYFISH_API_KEY"], "tinyfish_api_key", ""
@@ -357,8 +382,19 @@ class Config:
     @property
     def is_llm_configured(self) -> bool:
         """Check if LLM provider has an API key or is a local provider without auth required."""
+        if bool(self.api_key):
+            return True
         is_local = "localhost" in self.base_url or "127.0.0.1" in self.base_url
-        return bool(self.api_key) or is_local
+        if is_local:
+            return True
+        try:
+            from xbot.providers.auth import get_auth_store
+            from xbot.providers.models import parse_model_ref
+            provider, _ = parse_model_ref(self.model_id)
+            key, _ = get_auth_store().resolve_credentials(provider)
+            return bool(key) or provider == "ollama"
+        except Exception:
+            return False
 
     @property
     def is_tinyfish_configured(self) -> bool:
@@ -375,7 +411,16 @@ class Config:
 
     @property
     def masked_api_key(self) -> str:
-        return self._mask_secret(self.api_key)
+        key = self.api_key
+        if not key:
+            try:
+                from xbot.providers.auth import get_auth_store
+                from xbot.providers.models import parse_model_ref
+                provider, _ = parse_model_ref(self.model_id)
+                key, _ = get_auth_store().resolve_credentials(provider)
+            except Exception:
+                pass
+        return self._mask_secret(key or "")
 
     @property
     def masked_tinyfish_key(self) -> str:

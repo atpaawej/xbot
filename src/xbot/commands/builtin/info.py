@@ -42,6 +42,8 @@ class HelpCommand(BaseCommand):
         else:
             # Fallback static listing
             cmd_table.add_row("/help, /?", "System", "Show this help table")
+            cmd_table.add_row("/login, /auth", "Config", "Authenticate with an LLM provider and pick default model")
+            cmd_table.add_row("/model, /m", "Config", "View or switch active model (provider/model_id)")
             cmd_table.add_row("/resume [all], /history", "Session", "Browse and resume past sessions")
             cmd_table.add_row("/new, /reset", "Session", "Start a new session")
             cmd_table.add_row("/tools", "Inspection", "List all available agent tools")

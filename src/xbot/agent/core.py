@@ -8,11 +8,11 @@ from typing import Any, AsyncGenerator, Optional, Sequence
 
 from ai import Agent, events, system_message, user_message
 from ai.models import InferenceRequestParams, Model, TemperatureSamplerParams
-from ai.providers.openai import OpenAIChatCompletionsProtocol, OpenAICompatibleProvider
 from ai.types.messages import Message
 
 from xbot.agent.prompts import get_system_prompt
 from xbot.config import Config, get_config
+from xbot.providers import get_provider_manager
 from xbot.tools import ALL_TOOLS
 
 
@@ -74,15 +74,20 @@ class AgentManager:
         self.config = config or get_config()
         from xbot.config import set_config
         set_config(self.config)
-        self.provider = OpenAICompatibleProvider(
-            name="openai-compatible",
-            default_base_url=self.config.base_url,
-            api_key_value=self.config.api_key or "not-provided",
-            protocol_override=OpenAIChatCompletionsProtocol(),
-            headers={},
-            env={},
+
+        self.provider_manager = get_provider_manager()
+        if self.config.model_id:
+            try:
+                self.provider_manager.switch_model(self.config.model_id, persist=False)
+            except Exception:
+                pass
+
+        self.model = self.provider_manager.create_model(
+            canonical_model=self.config.model_id,
+            base_url=self.config.base_url,
+            api_key=self.config.api_key,
         )
-        self.model = Model(id=self.config.model_id, provider=self.provider)
+        self.provider = self.model.provider
         self.agent = Agent(tools=ALL_TOOLS)
 
         from xbot.sessions import SessionManager, SessionSummary
@@ -100,20 +105,28 @@ class AgentManager:
             system_message(get_system_prompt(self.config.workspace_dir))
         ]
 
+    def switch_model(self, canonical_model: str) -> None:
+        """Switch active model and provider at runtime."""
+        self.provider_manager.switch_model(canonical_model, persist=True)
+        self.model = self.provider_manager.create_model(canonical_model)
+        self.provider = self.model.provider
+
     def update_config(self, new_config: Config) -> None:
         """Update active configuration, reinitializing provider and model."""
         self.config = new_config
         from xbot.config import set_config
         set_config(self.config)
-        self.provider = OpenAICompatibleProvider(
-            name="openai-compatible",
-            default_base_url=self.config.base_url,
-            api_key_value=self.config.api_key or "not-provided",
-            protocol_override=OpenAIChatCompletionsProtocol(),
-            headers={},
-            env={},
+        if self.config.model_id:
+            try:
+                self.provider_manager.switch_model(self.config.model_id, persist=False)
+            except Exception:
+                pass
+        self.model = self.provider_manager.create_model(
+            canonical_model=self.config.model_id,
+            base_url=self.config.base_url,
+            api_key=self.config.api_key,
         )
-        self.model = Model(id=self.config.model_id, provider=self.provider)
+        self.provider = self.model.provider
         if self.messages:
             self.messages[0] = system_message(get_system_prompt(self.config.workspace_dir))
 
@@ -151,12 +164,13 @@ class AgentManager:
         """
         # Validate that an API key is present before initiating request
         if not self.config.is_llm_configured:
+            active_p = getattr(self.provider_manager, "active_provider_id", "openai")
             yield AgentError(
-                "LLM Provider API key is not configured.\n"
-                f"Base URL: {self.config.base_url}\n"
-                f"Model ID: {self.config.model_id}\n\n"
-                "Please configure OPENAI_API_KEY (or API_KEY) in .env or .env.local.\n"
-                "You can copy from .env.example to get started."
+                f"LLM Provider API key is not configured for '{self.model.id}'.\n"
+                f"Active Provider: {active_p}\n\n"
+                f"Run '/login {active_p}' to authenticate with your API key,\n"
+                "or set it in .env / environment variables.\n"
+                "Type /login to choose from all supported providers."
             )
             return
 
