@@ -1,4 +1,4 @@
-"""Dynamic model discovery from provider endpoints, metadata enrichment, and disk caching."""
+"""Dynamic model discovery from provider endpoints, models.dev metadata enrichment, and disk caching."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from xbot.providers.models import ModelInfo, canonical_model_id, parse_model_ref
 from xbot.providers.registry import get_provider_registry
 
 CACHE_TTL_SECONDS = 86400  # 24 hours
+MODELS_DEV_SPEC_URL = "https://models.dev/models.json"
 
 
 def get_cache_dir() -> Path:
@@ -60,10 +61,39 @@ def _save_cached_models(provider_id: str, models: list[ModelInfo]) -> None:
         pass
 
 
+def _get_models_dev_cache() -> dict[str, Any]:
+    """Retrieve cached models.dev specification or return empty dict."""
+    cache_file = get_cache_dir() / "models_dev_spec.json"
+    if cache_file.is_file():
+        try:
+            data = json.loads(cache_file.read_text(encoding="utf-8"))
+            cached_time = data.get("timestamp", 0)
+            if time.time() - cached_time <= CACHE_TTL_SECONDS:
+                return data.get("spec", {})
+        except Exception:
+            pass
+
+    # Try sync fetch with short timeout if cache missing or expired
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            res = client.get(MODELS_DEV_SPEC_URL)
+            if res.status_code == 200:
+                spec = res.json()
+                cache_file.write_text(
+                    json.dumps({"timestamp": time.time(), "spec": spec}),
+                    encoding="utf-8",
+                )
+                return spec
+    except Exception:
+        pass
+
+    return {}
+
+
 def enrich_model_metadata(provider_id: str, raw_model_id: str) -> dict[str, Any]:
-    """Enrich a model with context window, reasoning support, and specs using LiteLLM/modelsdotdev."""
+    """Enrich a model with context window, reasoning support, and specs dynamically."""
     clean_p = provider_id.strip().lower()
-    full_id = canonical_model_id(clean_p, raw_model_id)
+    lower_id = raw_model_id.lower()
 
     meta: dict[str, Any] = {
         "context_window": None,
@@ -75,47 +105,68 @@ def enrich_model_metadata(provider_id: str, raw_model_id: str) -> dict[str, Any]
         "pricing_output": None,
     }
 
-    # Detect reasoning capability by naming convention
-    lower_id = raw_model_id.lower()
+    # 1. Detect capabilities by naming convention
     if any(k in lower_id for k in ["reasoner", "r1", "o1", "o3", "thinking"]):
         meta["supports_reasoning"] = True
 
-    # 1. Try LiteLLM model info
-    try:
-        import litellm
-        info = None
-        for candidate in [full_id, raw_model_id]:
-            try:
-                info = litellm.get_model_info(candidate)
-                if info:
-                    break
-            except Exception:
-                continue
+    if any(k in lower_id for k in ["vision", "vl", "omni", "4o", "flash", "claude"]):
+        meta["supports_vision"] = True
 
-        if info:
-            meta["context_window"] = info.get("max_input_tokens") or info.get("max_tokens")
-            meta["max_output"] = info.get("max_output_tokens")
-            if info.get("supports_function_calling") is not None:
-                meta["supports_tools"] = bool(info.get("supports_function_calling"))
-            if info.get("supports_vision") is not None:
-                meta["supports_vision"] = bool(info.get("supports_vision"))
-            meta["pricing_input"] = info.get("input_cost_per_token")
-            meta["pricing_output"] = info.get("output_cost_per_token")
-            if info.get("supports_reasoning") is not None:
-                meta["supports_reasoning"] = bool(info.get("supports_reasoning"))
-    except Exception:
-        pass
+    # 2. Try models.dev dynamic registry
+    spec = _get_models_dev_cache()
+    model_spec = None
+    for candidate in [
+        f"{clean_p}/{raw_model_id}",
+        raw_model_id,
+        f"{clean_p}:{raw_model_id}",
+    ]:
+        if candidate in spec:
+            model_spec = spec[candidate]
+            break
 
-    # 2. Try modelsdotdev enrichment if context window still missing
+    if model_spec and isinstance(model_spec, dict):
+        limit = model_spec.get("limit") or {}
+        if isinstance(limit, dict):
+            meta["context_window"] = limit.get("context")
+            meta["max_output"] = limit.get("output")
+        if "reasoning" in model_spec:
+            meta["supports_reasoning"] = bool(model_spec["reasoning"])
+        if "tool_call" in model_spec:
+            meta["supports_tools"] = bool(model_spec["tool_call"])
+        cost = model_spec.get("cost") or {}
+        if isinstance(cost, dict):
+            meta["pricing_input"] = cost.get("input")
+            meta["pricing_output"] = cost.get("output")
+
+    # 3. Try modelsdotdev package if context window still missing
     if not meta["context_window"]:
         try:
             import modelsdotdev
+
             m_dev = modelsdotdev.get_model_by_id(f"{clean_p}:{raw_model_id}")
             if m_dev and m_dev.limits:
                 meta["context_window"] = m_dev.limits.context
                 meta["max_output"] = m_dev.limits.output
         except Exception:
             pass
+
+    # 4. Fallback defaults if still unspecified
+    if not meta["context_window"]:
+        if "claude" in lower_id:
+            meta["context_window"] = 200000
+            meta["max_output"] = 64000
+        elif "gpt-4" in lower_id or "o1" in lower_id or "o3" in lower_id:
+            meta["context_window"] = 128000
+            meta["max_output"] = 16384
+        elif "gemini" in lower_id:
+            meta["context_window"] = 1000000
+            meta["max_output"] = 8192
+        elif "deepseek" in lower_id:
+            meta["context_window"] = 64000
+            meta["max_output"] = 8192
+        else:
+            meta["context_window"] = 128000
+            meta["max_output"] = 8192
 
     return meta
 
@@ -154,7 +205,9 @@ async def fetch_provider_models(
             else:
                 headers["Authorization"] = f"Bearer {api_key.strip()}"
 
-        endpoint_url = target_base.rstrip("/") + (profile.models_endpoint if profile and profile.models_endpoint else "/models")
+        endpoint_url = target_base.rstrip("/") + (
+            profile.models_endpoint if profile and profile.models_endpoint else "/models"
+        )
 
         # Specific Anthropic models URL
         if clean_p == "anthropic":
@@ -164,19 +217,22 @@ async def fetch_provider_models(
         if clean_p == "ollama":
             endpoint_url = target_base.rstrip("/v1").rstrip("/") + "/api/tags"
 
+        # Specific OpenRouter discovery
+        if clean_p == "openrouter":
+            endpoint_url = "https://openrouter.ai/api/v1/models"
+
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 res = await client.get(endpoint_url, headers=headers)
                 if res.status_code == 200:
                     payload = res.json()
-                    # Standard OpenAI format: {"data": [{"id": "gpt-4o"}, ...]}
+                    # Standard OpenAI / OpenRouter format: {"data": [{"id": "gpt-4o"}, ...]}
                     if "data" in payload and isinstance(payload["data"], list):
                         for item in payload["data"]:
                             if isinstance(item, dict) and "id" in item:
                                 raw_model_ids.append(str(item["id"]))
-                    # Anthropic format: {"data": [{"id": "..."}, ...]}
+                    # Ollama / Anthropic format: {"models": [...]}
                     elif "models" in payload and isinstance(payload["models"], list):
-                        # Ollama format: {"models": [{"name": "llama3.2:latest"}, ...]}
                         for item in payload["models"]:
                             if isinstance(item, dict):
                                 m_id = item.get("name") or item.get("id") or item.get("model")
@@ -185,17 +241,11 @@ async def fetch_provider_models(
         except Exception:
             pass
 
-    # 2. Fallback to LiteLLM's known models catalog if endpoint didn't return any
-    if not raw_model_ids:
-        try:
-            import litellm
-            # Provider mapping in LiteLLM
-            litellm_p = "xai" if clean_p == "xai" else clean_p
-            known = litellm.models_by_provider.get(litellm_p, [])
-            for k in known:
-                raw_model_ids.append(str(k))
-        except Exception:
-            pass
+    # 2. Fallback to profile's flagship models if endpoint didn't return any
+    if not raw_model_ids and profile and profile.flagship_models:
+        for fm in profile.flagship_models:
+            _, mid = parse_model_ref(fm)
+            raw_model_ids.append(mid)
 
     # 3. Fallback to profile default model if still empty
     if not raw_model_ids and profile:
@@ -227,7 +277,7 @@ async def fetch_provider_models(
             )
         )
 
-    # Sort models: default/flagship models first, then alphabetical
+    # Sort models: default model first, then alphabetical
     def sort_key(m: ModelInfo) -> tuple[int, str]:
         is_default = profile and m.full_id == profile.default_model
         return (0 if is_default else 1, m.full_id)

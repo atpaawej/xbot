@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from xbot import __version__
 from xbot.config import Config
 from xbot.tools import TOOL_METADATA
 from xbot.tui.formatting import format_json, truncate_preview
@@ -78,7 +79,7 @@ def create_banner(config: Config, session_title: Optional[str] = None) -> Panel:
         content,
         border_style="cyan",
         box=box.ROUNDED,
-        title="[bold bright_white]🤖 xbot v0.1.0[/bold bright_white]",
+        title=f"[bold bright_white]🤖 xbot v{__version__}[/bold bright_white]",
         subtitle="[dim]Powered by Python AI SDK & TinyFish[/dim]",
         padding=(1, 2),
     )

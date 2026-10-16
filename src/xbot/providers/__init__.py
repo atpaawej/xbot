@@ -6,8 +6,20 @@ live model discovery from provider endpoints, and unified LiteLLM streaming prot
 
 from __future__ import annotations
 
-from xbot.providers.adapter import LiteLLMProtocol, LiteLLMProvider
+from xbot.providers.adapter import (
+    LiteLLMProtocol,
+    LiteLLMProvider,
+    MultiProvider,
+    MultiProviderProtocol,
+)
 from xbot.providers.auth import AuthStore, get_auth_store
+from xbot.providers.drivers import (
+    AnthropicDriver,
+    BaseDriver,
+    OpenAICompatibleDriver,
+    get_driver,
+    register_driver,
+)
 from xbot.providers.fetcher import enrich_model_metadata, fetch_provider_models
 from xbot.providers.manager import ProviderManager, get_provider_manager
 from xbot.providers.models import (
@@ -33,8 +45,15 @@ __all__ = [
     "get_auth_store",
     "fetch_provider_models",
     "enrich_model_metadata",
+    "MultiProviderProtocol",
+    "MultiProvider",
     "LiteLLMProtocol",
     "LiteLLMProvider",
+    "BaseDriver",
+    "OpenAICompatibleDriver",
+    "AnthropicDriver",
+    "get_driver",
+    "register_driver",
     "ProviderManager",
     "get_provider_manager",
 ]

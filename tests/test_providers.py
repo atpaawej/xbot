@@ -287,3 +287,103 @@ class TestProviderCommands:
         assert "Invalid Model Format" in output
         assert "provider/model_id" in output
         agent_manager.switch_model.assert_not_called()
+
+
+class TestWireProtocolDrivers:
+    """Test raw wire protocol drivers and extensible routing."""
+
+    def test_driver_router_dispatch(self):
+        from xbot.providers.drivers import (
+            AnthropicDriver,
+            BaseDriver,
+            OpenAICompatibleDriver,
+            get_driver,
+            register_driver,
+        )
+
+        assert isinstance(get_driver("openai"), OpenAICompatibleDriver)
+        assert isinstance(get_driver("anthropic"), AnthropicDriver)
+        # Defaults to openai for unknown
+        assert isinstance(get_driver("unknown_protocol"), OpenAICompatibleDriver)
+
+        # Custom registration
+        class DummyDriver(BaseDriver):
+            async def stream(self, *args, **kwargs):
+                pass
+
+        register_driver("dummy", DummyDriver())
+        assert isinstance(get_driver("dummy"), DummyDriver)
+
+    @pytest.mark.asyncio
+    async def test_openai_driver_reasoning_and_tools(self):
+        from types import SimpleNamespace
+        from ai import types, user_message
+        from ai.models import Model
+        from xbot.providers.drivers.openai_driver import OpenAICompatibleDriver
+        from xbot.providers.adapter import MultiProvider
+
+        driver = OpenAICompatibleDriver()
+
+        # Build mock chunks
+        chunk1 = SimpleNamespace(
+            id="chatcmpl-1",
+            model="deepseek-reasoner",
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(
+                        reasoning_content="Let's think step by step.",
+                        content=None,
+                        tool_calls=None,
+                        model_extra=None,
+                    ),
+                    finish_reason=None,
+                )
+            ],
+        )
+        chunk2 = SimpleNamespace(
+            id="chatcmpl-1",
+            model="deepseek-reasoner",
+            usage=None,
+            choices=[
+                SimpleNamespace(
+                    delta=SimpleNamespace(
+                        reasoning_content=None,
+                        content="Here is the solution.",
+                        tool_calls=None,
+                        model_extra=None,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+        )
+
+        async def mock_chunk_generator():
+            yield chunk1
+            yield chunk2
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_chunk_generator())
+
+        prov = MultiProvider(name="deepseek", default_base_url="https://api.deepseek.com", api_key_value="test")
+        model = Model(id="deepseek/deepseek-reasoner", provider=prov, protocol=prov.default_protocol())
+
+        events = []
+        async for ev in driver.stream(
+            client=mock_client,
+            model=model,
+            messages=[user_message("Hello")],
+            provider="deepseek",
+        ):
+            events.append(ev)
+
+        assert any(isinstance(e, types.events.StreamStart) for e in events)
+        assert any(isinstance(e, types.events.ReasoningStart) for e in events)
+        reasoning_deltas = [e for e in events if isinstance(e, types.events.ReasoningDelta)]
+        assert len(reasoning_deltas) == 1
+        assert reasoning_deltas[0].chunk == "Let's think step by step."
+        text_deltas = [e for e in events if isinstance(e, types.events.TextDelta)]
+        assert len(text_deltas) == 1
+        assert text_deltas[0].chunk == "Here is the solution."
+        assert any(isinstance(e, types.events.StreamEnd) for e in events)
+

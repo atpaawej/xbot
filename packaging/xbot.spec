@@ -15,7 +15,7 @@ src_dir = repo_root / "src"
 # Collect hidden modules for packages that do dynamic loading
 hiddenimports = [
     *collect_submodules("xbot"),
-    *collect_submodules("litellm"),
+    *collect_submodules("anthropic"),
     *collect_submodules("tinyfish"),
     *collect_submodules("InquirerPy"),
     *collect_submodules("prompt_toolkit"),
@@ -29,11 +29,11 @@ hiddenimports = [
 
 # Collect package data files and package metadata
 datas = [
-    *collect_data_files("litellm"),
+    *collect_data_files("anthropic"),
     *collect_data_files("tinyfish"),
     *collect_data_files("InquirerPy"),
     *copy_metadata("xbot"),
-    *copy_metadata("litellm"),
+    *copy_metadata("anthropic"),
     *copy_metadata("tinyfish"),
     *copy_metadata("inquirerpy"),
     *copy_metadata("prompt_toolkit"),

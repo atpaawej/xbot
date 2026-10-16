@@ -97,10 +97,12 @@ class ProviderProfile(BaseModel):
     id: str
     name: str
     category: str = "Major"  # Major, Fast/Inference, Chinese, Local, Gateway
+    protocol: str = "openai"  # "openai", "anthropic", or custom wire protocol
     default_base_url: Optional[str] = None
     models_endpoint: Optional[str] = None
     auth_env_vars: list[str] = Field(default_factory=list)
     default_model: str  # Must be canonical 'provider/model_id'
+    flagship_models: list[str] = Field(default_factory=list)
     doc_url: Optional[str] = None
     description: Optional[str] = None
 

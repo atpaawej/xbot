@@ -47,14 +47,13 @@ class LoginCommand(BaseCommand):
         # 1. Interactive Provider Selection if not specified in arguments
         if not target_provider_id:
             choices: list[Choice] = []
-            grouped = registry.providers_by_category()
+            authenticated_providers = set(auth_store.get_authenticated_providers())
 
-            for category, providers in grouped.items():
-                choices.append(Choice(value="", name=f"--- {category} Providers ---", enabled=False))
-                for p in providers:
-                    auth_indicator = " [green](Logged In)[/green]" if p.id in auth_store.get_authenticated_providers() else ""
-                    display_name = f"{p.name}{auth_indicator} — {p.description or ''}"
-                    choices.append(Choice(value=p.id, name=display_name))
+            for p in registry.all_providers():
+                auth_indicator = " (Logged In)" if p.id in authenticated_providers else ""
+                desc = f" — {p.description}" if p.description else ""
+                display_name = f"{p.name}{auth_indicator}{desc}"
+                choices.append(Choice(value=p.id, name=display_name))
 
             choices.append(Choice(value="custom", name="Custom OpenAI-Compatible Endpoint..."))
 

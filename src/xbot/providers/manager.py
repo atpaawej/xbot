@@ -7,7 +7,12 @@ from typing import Optional
 
 from ai.models import Model
 
-from xbot.providers.adapter import LiteLLMProtocol, LiteLLMProvider
+from xbot.providers.adapter import (
+    LiteLLMProtocol,
+    LiteLLMProvider,
+    MultiProvider,
+    MultiProviderProtocol,
+)
 from xbot.providers.auth import AuthStore, get_auth_store
 from xbot.providers.fetcher import fetch_provider_models
 from xbot.providers.models import ModelInfo, canonical_model_id, parse_model_ref
