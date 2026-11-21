@@ -1,0 +1,18 @@
+{
+  "name": "xbot-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @xbot/shared build && pnpm --filter @xbot/server build && pnpm --filter @xbot/web build",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"server,web\" -c \"cyan,magenta\" \"pnpm --filter @xbot/server dev\" \"pnpm --filter @xbot/web dev\"",
+    "dev:server": "pnpm --filter @xbot/server dev",
+    "dev:web": "pnpm --filter @xbot/web dev",
+    "test": "pnpm --filter @xbot/server test",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
