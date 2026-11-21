@@ -6,7 +6,7 @@
 
 ## Documentation
 
-- [Project Specification](docs/spec/SPEC.md)
+- [Project Specification (GitHub Issue #1)](https://github.com/atpaawej/xbot/issues/1)
 - [Grok Bot Architecture Research](docs/research/grokbot.md)
 
 ## Architecture Overview
