@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #07090e;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f2638;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2d374d;
+}
+
+/* Tabular numbers for telemetry counters */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle glow utility */
+.glow-accent {
+  box-shadow: 0 0 20px -3px rgba(59, 130, 246, 0.25);
+}
+
+.glow-flame {
+  box-shadow: 0 0 15px -2px rgba(244, 63, 94, 0.3);
+}
